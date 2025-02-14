@@ -78,9 +78,42 @@ const signatureBase64 = signatureBuffer.toString('base64'); // Base64 encode for
 console.log("Digital Signature (Base64 encoded):", signatureBase64);
 
 
-// 5. Bitcoin Wallet Address (This is a SIMPLIFIED placeholder - Bitcoin address generation is MUCH more complex)
+// 5. Bitcoin Wallet Address (This is a SIMPLIFIED placeholder - NOT a real address generator)
 console.log("\n--- Bitcoin Wallet Address (Simplified Placeholder - NOT a real address generator) ---");
-console.log("Bitcoin Wallet Address (Placeholder):  Not implemented here. Bitcoin address generation involves more steps including hashing the public key, versioning, checksums, and base58 encoding. This example focuses on the crypto primitives requested.");
+
+function generateSimplifiedBitcoinAddressPlaceholder(rsaPublicKeyPem) {
+    // In REAL Bitcoin: You would hash the *ECDSA* public key, not RSA.
+    // We are using the RSA public key from the example as a stand-in for demonstration.
+
+    // Corrected line: Remove 'pem' encoding as PEM string is already in publicKey
+    const publicKeyBuffer = Buffer.from(rsaPublicKeyPem); // Convert PEM string to buffer.
+
+    // 1. SHA-256 hash of the Public Key (in Bitcoin, it's usually the *compressed* public key)
+    const sha256HashOfPubKey = crypto.createHash('sha256').update(publicKeyBuffer).digest();
+
+    // 2. RIPEMD-160 hash of the SHA-256 hash
+    const ripemd160HashOfSha256 = crypto.createHash('ripemd160').update(sha256HashOfPubKey).digest('hex');
+
+    // 3. Add version byte (0x00 for Main Network '1' addresses - simplified)
+    const versionByte = '00'; // Mainnet version byte in hex
+    const versionedPayload = versionByte + ripemd160HashOfSha256;
+
+    // 4. **No Checksum is added in this simplified example for brevity.**
+    //    Real Bitcoin addresses include a checksum.
+
+    // 5. Base58 Encoding (Simplified - using hex for now for simplicity)
+    //    Real Bitcoin uses Base58 encoding. For this placeholder, we'll just use Hex to keep it simple.
+    const simplifiedBitcoinAddress = versionedPayload; // Already in hex string.
+
+    return simplifiedBitcoinAddress;
+}
+
+const bitcoinAddressPlaceholder = generateSimplifiedBitcoinAddressPlaceholder(publicKey);
+console.log("Bitcoin Wallet Address (Placeholder):", bitcoinAddressPlaceholder);
+console.log("Note: This is a highly simplified and INVALID Bitcoin address placeholder.");
+console.log("      A real Bitcoin address generation is much more complex and involves ECDSA keys,");
+console.log("      compressed public keys, checksums, and Base58 encoding.");
+
 
 console.log("\n--- Summary ---");
 console.log("Name:", name);
@@ -90,7 +123,7 @@ console.log("RIPEMD-160 Hash:", ripemd160Hash);
 console.log("SHA3-256 Hash:", sha3Hash);
 console.log("Encrypted Name (RSA, Base64):", encryptedNameBase64);
 console.log("Digital Signature (RSA PKCS#1 v1.5, SHA-256, Base64):", signatureBase64);
-console.log("Bitcoin Wallet Address: (Placeholder - See Note)");
+console.log("Bitcoin Wallet Address (Placeholder):", bitcoinAddressPlaceholder); // Display the placeholder
 
 
 /*
@@ -112,6 +145,7 @@ console.log("Bitcoin Wallet Address: (Placeholder - See Note)");
     * **Public/Private Keys:** Output in PEM format (standard text-based encoding).
     * **Hashes:** Output in HEX encoded strings.
     * **Encrypted Name and Signature:** Output in Base64 encoded strings (to represent binary data in text).
+    * **Bitcoin Wallet Address (Placeholder):** Output in HEX string (simplified).
 
 * **SHA3 Variant:**  This example uses `sha3-256`. There are other SHA3 variants (like SHA3-512, SHA3-384). If you need a different one, adjust the `crypto.createHash('sha3-256')` accordingly (e.g., `crypto.createHash('sha3-512')`).
 */
