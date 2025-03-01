@@ -1,144 +1,255 @@
 #include <iostream>
-#include <chrono>
-#include <ctime>
 #include <vector>
-#include <openssl/sha.h>
+#include <string>
+#include <ctime>
 #include <sstream>
 #include <iomanip>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
 
 using namespace std;
 
-struct transaction {
-  long long amount;
-  string sender_addr;
-  string reciever_addr;
-};
+// Helper function to calculate SHA-256 hash
+string sha256(const string str) {
+    EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+    const EVP_MD* md = EVP_sha256();
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int len;
 
-class Block {
-private:
-  long long index;
-  time_t timestamp;
-  string prev_hash;
-  string hash;
-  transaction transact;
-  long long nonce;
+    EVP_DigestInit_ex(mdctx, md, nullptr);
+    EVP_DigestUpdate(mdctx, str.c_str(), str.size());
+    EVP_DigestFinal_ex(mdctx, hash, &len);
+    EVP_MD_CTX_free(mdctx);
 
-public:
-  Block(long long index, string prev_hash, transaction transact )
-    : index(index), prev_hash(prev_hash), nonce(0), transact(transact)
-  {
-    auto time = chrono::system_clock::now();
-    timestamp = chrono::duration_cast<chrono::milliseconds>(time.time_since_epoch()).count();
-    hash = compute_hash();
-  }
-  Block(Block &&) = default;
-  Block(const Block &) = default;
-  Block &operator=(Block &&) = default;
-  Block &operator=(const Block &) = default;
-  ~Block() = default;  
-
-  //getters
-  long long get_index() const { return index;}
-  string get_prev_hash() const {return prev_hash;}
-  string get_hash() const {return hash;}
-  time_t get_timestamp() const {return timestamp;}
-  long long get_nonce() const {return nonce;}
-
-  string compute_hash() const {
     stringstream ss;
-    ss << index << prev_hash << timestamp << prev_hash << transact.amount << transact.sender_addr << transact.reciever_addr << nonce;
-    string input = ss.str();
-
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256((unsigned char*)input.c_str(), input.length(), hash);
-
-    stringstream ss_hash;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-      ss_hash << hex << setw(2) << setfill('0') << (int)hash[i];
+    for(unsigned int i = 0; i < len; i++) {
+        ss << hex << setw(2) << setfill('0') << (int)hash[i];
     }
-    return ss_hash.str();
-  }
+    return ss.str();
+}
 
-  void mine_block(int difficulty) {
-    string target(difficulty, '0');
-    while (hash.substr(0, difficulty) != target) {
-      nonce++;
-      hash = compute_hash();
+// Key pair generation and management
+class KeyPair{
+public:
+    EVP_PKEY* privateKey = nullptr;
+    EVP_PKEY* publicKey = nullptr;
+    
+    KeyPair() {
+        // Generate the private key
+        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        if (!ctx) {
+            cerr << "Error creating EVP_PKEY_CTX" << endl;
+            return;
+        }
+        if (EVP_PKEY_keygen_init(ctx) <= 0) {
+            cerr << "Error initializing keygen" << endl;
+            EVP_PKEY_CTX_free(ctx);
+            return;
+        }
+        if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, 2048) <= 0) {
+            cerr << "Error setting RSA keygen bits" << endl;
+            EVP_PKEY_CTX_free(ctx);
+            return;
+        }
+        if (EVP_PKEY_keygen(ctx, &privateKey) <= 0) {
+            cerr << "Error generating key" << endl;
+            EVP_PKEY_CTX_free(ctx);
+            return;
+        }
+        EVP_PKEY_CTX_free(ctx);
+        
+        // Duplicate the private key to create the public key
+        publicKey = EVP_PKEY_dup(privateKey);
+        if (!publicKey) {
+            cerr << "Error duplicating privateKey to publicKey" << endl;
+        }
     }
-    cout << "Block mined: " << hash << endl;
-  }
+    
+    ~KeyPair() {
+        if(privateKey)
+            EVP_PKEY_free(privateKey);
+        if(publicKey)
+            EVP_PKEY_free(publicKey);
+    }
 };
 
+// Transaction output structure
+struct TXOutput {
+    double amount;
+    string recipient;
+};
+
+// Transaction input structure
+struct TXInput {
+    string txId;
+    int outputIndex;
+    string signature;
+};
+
+// Transaction class
+class Transaction {
+public:
+    string txId;
+    vector<TXInput> inputs;
+    vector<TXOutput> outputs;
+    time_t timestamp;
+
+    Transaction(vector<TXInput> in, vector<TXOutput> out) 
+        : inputs(in), outputs(out), timestamp(time(nullptr)) {
+        calculateHash();
+    }
+
+    void calculateHash() {
+        stringstream ss;
+        ss << timestamp;
+        for(auto& in : inputs) {
+            ss << in.txId << in.outputIndex;
+        }
+        for(auto& out : outputs) {
+            ss << out.amount << out.recipient;
+        }
+        txId = sha256(ss.str());
+    }
+};
+
+// Block class
+class Block {
+public:
+    int index;
+    time_t timestamp;
+    vector<Transaction> transactions;
+    string previousHash;
+    string hash;
+    int nonce;
+
+    Block(int idx, vector<Transaction> txs, string prevHash)
+        : index(idx), timestamp(time(nullptr)), 
+          transactions(txs), previousHash(prevHash), nonce(0) {
+        hash = calculateHash();
+    }
+
+    string calculateHash() const {
+        stringstream ss;
+        ss << index << timestamp << previousHash << nonce;
+        for(auto& tx : transactions) {
+            ss << tx.txId;
+        }
+        return sha256(ss.str());
+    }
+
+    void mineBlock(int difficulty) {
+        string target(difficulty, '0');
+        while(hash.substr(0, difficulty) != target) {
+            nonce++;
+            hash = calculateHash();
+        }
+    }
+};
+
+// Blockchain class
 class Blockchain {
 private:
-  vector<Block> chain;
-  int difficulty;
+    vector<Block> chain;
+    int difficulty;
+    vector<TXOutput> UTXO;
 
-  Block create_genesis_block() const {
-    transaction genesis_transact = {0, "0", "0"};
-    return Block(0, "0", genesis_transact);
-  }
-
-public: 
-  Blockchain(int difficulty) : difficulty(difficulty) {
-    chain.push_back(create_genesis_block());
-  }
-  Blockchain(Blockchain &&) = default;
-  Blockchain(const Blockchain &) = default;
-  Blockchain &operator=(Blockchain &&) = default;
-  Blockchain &operator=(const Blockchain &) = default;
-  ~Blockchain() = default;
-
-  void add_block(const transaction& transact) {
-    Block new_block(chain.size(), chain.back().get_hash(), transact);
-    new_block.mine_block(difficulty);
-    chain.push_back(new_block);
-  }
-
-  bool is_chain_valid() const {
-    for (int i = 1; i < chain.size(); i++) {
-      if (chain[i].get_hash() != chain[i].compute_hash()) {
-        return false;
-      }
-      if (chain[i].get_prev_hash() != chain[i-1].get_hash()) {
-        return false;
-      }
+public:
+    Blockchain() : difficulty(4) {
+        createGenesisBlock();
     }
-    return true;
-  }
+
+    void createGenesisBlock() {
+        vector<Transaction> txs;
+        KeyPair genesisKey;
+        txs.emplace_back(vector<TXInput>{}, vector<TXOutput>{{100.0, "Genesis"}});
+        Block genesis(0, txs, "0");
+        genesis.mineBlock(difficulty);
+        chain.push_back(genesis);
+        
+        // Add genesis UTXO
+        UTXO.push_back({100.0, "Genesis"});
+    }
+
+    Block getLastBlock() const {
+        return chain.back();
+    }
+
+    void addBlock(Block newBlock) {
+        newBlock.previousHash = getLastBlock().hash;
+        newBlock.mineBlock(difficulty);
+        chain.push_back(newBlock);
+        
+        // Update UTXO
+        for(auto& tx : newBlock.transactions) {
+            for(auto& output : tx.outputs) {
+                UTXO.push_back(output);
+            }
+        }
+    }
+
+    bool isChainValid() {
+        for(size_t i = 1; i < chain.size(); i++) {
+            const Block& current = chain[i];
+            const Block& previous = chain[i-1];
+
+            if(current.hash != current.calculateHash()) {
+                cout << "Invalid hash at block " << i << endl;
+                return false;
+            }
+
+            if(current.previousHash != previous.hash) {
+                cout << "Invalid previous hash at block " << i << endl;
+                return false;
+            }
+
+            if(current.hash.substr(0, difficulty) != string(difficulty, '0')) {
+                cout << "Block " << i << " not mined properly" << endl;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void printUTXO() {
+        cout << "\nUTXO Set:" << endl;
+        for(size_t i = 0; i < UTXO.size(); i++) {
+            cout << "UTXO " << i << ": " << UTXO[i].amount 
+                 << " to " << UTXO[i].recipient << endl;
+        }
+    }
 };
 
-int main (int argc, char *argv[]) {
+int main() {
+    Blockchain bc;
 
-  if(argc < 2) {
-    cout << "Usage: " << argv[0] << " <difficulty>" << endl;
-    return 1;
-  }
-  const int difficulty = stoi(argv[1]);
+    // Simulate adding blocks
+    KeyPair minerKey, aliceKey, bobKey;
 
-  //creating blockchain with genesis block created with constructor
-  Blockchain blockchain(difficulty);
+    // Block 1: Miner reward
+    vector<Transaction> txs1;
+    txs1.emplace_back(vector<TXInput>{}, vector<TXOutput>{{50.0, "Miner"}});
+    Block block1(1, txs1, bc.getLastBlock().hash);
+    bc.addBlock(block1);
 
-  //treating names as addresses for simplicity
-  const time_t t0 = chrono::system_clock::to_time_t(chrono::system_clock::now());
-  blockchain.add_block({100, "Alice", "Bob"});
-  const time_t t1 = chrono::system_clock::to_time_t(chrono::system_clock::now());
+    // Block 2: Transfer
+    vector<Transaction> txs2;
+    TXInput in1{"genesis_tx_id", 0, "sig"};
+    TXOutput out1{30.0, "Alice"}, out2{20.0, "Miner"};
+    txs2.emplace_back(vector<TXInput>{in1}, vector<TXOutput>{out1, out2});
+    Block block2(2, txs2, bc.getLastBlock().hash);
+    bc.addBlock(block2);
 
-  cout << "time taken: " << difftime(t1, t0) << " seconds \n";
+    // Block 3: Another transfer
+    vector<Transaction> txs3;
+    TXInput in2{"tx2_id", 0, "sig"};
+    TXOutput out3{15.0, "Bob"}, out4{15.0, "Alice"};
+    txs3.emplace_back(vector<TXInput>{in2}, vector<TXOutput>{out3, out4});
+    Block block3(3, txs3, bc.getLastBlock().hash);
+    bc.addBlock(block3);
 
-  blockchain.add_block({50, "Bob", "Charlie"});
-  const time_t t2 = chrono::system_clock::to_time_t(chrono::system_clock::now());
+    // Validate and print chain status
+    cout << "Blockchain valid: " << (bc.isChainValid() ? "Yes" : "No") << endl;
+    bc.printUTXO();
 
-  cout << "time taken: " << difftime(t2, t1) << " seconds \n";
-
-  blockchain.add_block({25, "Charlie", "Dave"});
-  const time_t t3 = chrono::system_clock::to_time_t(chrono::system_clock::now());
-
-  cout << "time taken: " << difftime(t3, t2) << " seconds \n\n";
-
-  cout << "Is blockchain valid? " << (blockchain.is_chain_valid()?"true":"false") << endl;
-
-  delete &t0, &t1, &t2, &t3;
-  delete &blockchain;
-  return 0;
+    return 0;
 }
