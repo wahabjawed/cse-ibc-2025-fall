@@ -331,6 +331,7 @@ function main() {
 
   // --- Transaction 1:  genesis1 (30) -> Alice (20 tokens), genesis1 (10 tokens) ---
   const genesisTx1 = blockchain.chain[0].transactions[0];
+  console.log(`This is the genesisTx1: ${genesisTx1}`)
   const tx1TokensData = JSON.stringify({ from: 'genesis1', tokens: 30 });
   const tx1Signature = genesisUser.signTransaction(tx1TokensData);
 
@@ -396,10 +397,10 @@ function main() {
   console.log('\nFull blockchain:');
   console.log(JSON.stringify(blockchain, null, 2));
 
-  console.log("\nUsers:");
-  console.log("Alice:", { address: alice.address, publicKey: alice.publicKey });
-  console.log("Bob:", { address: bob.address, publicKey: bob.publicKey });
-  console.log("Charlie:", { address: charlie.address, publicKey: charlie.publicKey });
+  // console.log("\nUsers:");
+  // console.log("Alice:", { address: alice.address, publicKey: alice.publicKey });
+  // console.log("Bob:", { address: bob.address, publicKey: bob.publicKey });
+  // console.log("Charlie:", { address: charlie.address, publicKey: charlie.publicKey });
 
   console.log("\nMempool:");
   console.log(JSON.stringify(blockchain.mempool, null, 2));
