@@ -60,6 +60,8 @@ class Blockchain {
     private List<Token> UTXO = new ArrayList<Token>();
     private int difficulty=2;
     private List<Transaction> mempool = new ArrayList<>();
+
+
     private Block createGenesisBlock() {
         List<Transaction> genesisTransactions = Arrays.asList(
                 new Transaction("tx1", "A", Collections.emptyList(), List.of(new Token("", 2)), null,null)
@@ -69,6 +71,10 @@ class Blockchain {
     public Blockchain(){
        Block genesisBlock= createGenesisBlock();
        chain.add(genesisBlock);
+       for(int i =0; i< genesisBlock.transactions.size(); i++){
+       UTXO.addAll(genesisBlock.transactions.get(i).output);
+       }
+
     }
 
     public List<Token> getUTXO() {
@@ -104,6 +110,10 @@ class Blockchain {
             UTXO.addAll(mempool.get(i).output);
             UTXO.removeAll(mempool.get(i).input);
         }
+        for(int i=0; i<UTXO.size();i++){
+        System.out.println("Utxo at index "+i+" "+ UTXO.get(i).toString());}
+
+        mempool.clear();
     }
 
     public boolean isChainValid() {
@@ -162,22 +172,7 @@ class MerkleTree {
 }
 
 public class SimpleBlockchain {
-//    public static void main(String[] args) {
-//        Blockchain blockchain = new Blockchain();
-//        User userA = new User();
-//        User userB = new User();
-//        User userC = new User();
-//
-//        Transaction tx1 = new Transaction("tx4", "B",  , userB.signTransaction("tx4"), userB.publicKey);
-//        blockchain.addTransaction(tx1);
-//        blockchain.mineNewBlock();
-//
-//        Transaction tx2 = new Transaction("tx5", "C", 5, userB.signTransaction("tx5"), userB.publicKey);
-//        blockchain.addTransaction(tx2);
-//        blockchain.mineNewBlock();
-//
-//        System.out.println("Blockchain valid: " + blockchain.isChainValid());
-//    }
+
         public static void main(String[] args) {
             Blockchain blockchain = new Blockchain();
             User userA = new User();
