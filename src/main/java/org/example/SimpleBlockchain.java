@@ -3,58 +3,19 @@ import java.security.*;
 import java.util.*;
 
 
-class User {
-    public String walletAddress;
-    public PrivateKey privateKey;
-    public PublicKey publicKey;
-
-    public User() {
-        try {
-            KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
-            keyGen.initialize(2048);
-            KeyPair pair = keyGen.generateKeyPair();
-            this.privateKey = pair.getPrivate();
-            this.publicKey = pair.getPublic();
-            this.walletAddress = Blockchain.applySHA256(publicKey.toString());
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public byte[] signTransaction(String data) {
-        try {
-            Signature rsa = Signature.getInstance("SHA256withRSA");
-            rsa.initSign(privateKey);
-            rsa.update(data.getBytes());
-            return rsa.sign();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public static boolean verifySignature(PublicKey publicKey, String data, byte[] signature) {
-        try {
-            Signature rsa = Signature.getInstance("SHA256withRSA");
-            rsa.initVerify(publicKey);
-            rsa.update(data.getBytes());
-            return rsa.verify(signature);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-}
-
-class Token {
+class Transaction {
     public String transactionId;
     public String owner;
-    public double amount;
+    public List<Token> input = new ArrayList<>();
+    public List<Token> output = new ArrayList<>();
     public byte[] signature;
     public PublicKey publicKey;
 
-    public Token(String transactionId, String owner, double amount, byte[] signature, PublicKey publicKey) {
+    public Transaction(String transactionId, String owner, List<Token> input, List<Token> output, byte[] signature, PublicKey publicKey) {
         this.transactionId = transactionId;
         this.owner = owner;
-        this.amount = amount;
+        this.input = input;
+        this.output = output;
         this.signature = signature;
         this.publicKey = publicKey;
     }
@@ -67,10 +28,10 @@ class Block {
     public String hash;
     public String merkleRoot;
     public int nonce;
-    public List<Token> transactions;
+    public List<Transaction> transactions;
     public int height;
 
-    public Block(int index, String previousHash, List<Token> transactions, int height) {
+    public Block(int index, String previousHash, List<Transaction> transactions, int height) {
         this.index = index;
         this.timestamp = new Date().getTime();
         this.previousHash = previousHash;
@@ -95,30 +56,28 @@ class Block {
 }
 
 class Blockchain {
-    private List<Block> chain;
-    private List<Token> tokenPool;
-    private int difficulty;
-
-    public Blockchain(int difficulty) {
-        this.difficulty = difficulty;
-        chain = new ArrayList<>();
-        tokenPool = new ArrayList<>();
-        chain.add(createGenesisBlock());
-    }
-
+    private List<Block> chain = new ArrayList<>();
+    private List<Token> UTXO = new ArrayList<Token>();
+    private int difficulty=2;
+    private List<Transaction> mempool = new ArrayList<>();
     private Block createGenesisBlock() {
-        List<Token> genesisTokens = Arrays.asList(
-                new Token("tx1", "A", 10, null, null),
-                new Token("tx2", "B", 30, null, null),
-                new Token("tx3", "C", 20, null, null)
+        List<Transaction> genesisTransactions = Arrays.asList(
+                new Transaction("tx1", "A", Collections.emptyList(), List.of(new Token("", 2)), null,null)
         );
-        tokenPool.addAll(genesisTokens);
-        return new Block(0, "0", genesisTokens, 0);
+        return new Block(0, "0", genesisTransactions, 0);
+    }
+    public Blockchain(){
+       Block genesisBlock= createGenesisBlock();
+       chain.add(genesisBlock);
     }
 
-    public boolean addTransaction(Token transaction) {
-        for (Token t : tokenPool) {
-            if (t.transactionId.equals(transaction.transactionId)) {
+    public List<Token> getUTXO() {
+        return UTXO;
+    }
+
+    public boolean addTransaction(Transaction transaction) {
+        for (Token t : transaction.input) {
+            if (!UTXO.contains(t)) {
                 System.out.println("Double spending detected!");
                 return false;
             }
@@ -127,19 +86,24 @@ class Blockchain {
             System.out.println("Invalid transaction signature!");
             return false;
         }
-        tokenPool.add(transaction);
+        mempool.add(transaction);
+//        UTXO.addAll(transaction.output);
+//        UTXO.removeAll(transaction.input);
         return true;
     }
 
     public void mineNewBlock() {
-        if (tokenPool.isEmpty()) {
+        if (mempool.isEmpty()) {
             System.out.println("No transactions to mine.");
             return;
         }
-        Block newBlock = new Block(chain.size(), chain.get(chain.size() - 1).hash, new ArrayList<>(tokenPool), chain.size());
+        Block newBlock = new Block(chain.size(), chain.get(chain.size() - 1).hash, new ArrayList<>(mempool), chain.size());
         newBlock.mineBlock(difficulty);
         chain.add(newBlock);
-        tokenPool.clear();
+        for(int i=0; i<mempool.size();i++) {
+            UTXO.addAll(mempool.get(i).output);
+            UTXO.removeAll(mempool.get(i).input);
+        }
     }
 
     public boolean isChainValid() {
@@ -166,13 +130,23 @@ class Blockchain {
             throw new RuntimeException(e);
         }
     }
+
+    public List<Token> findTokens(PublicKey publicKey, int i) {
+        List<Token> tokens = new ArrayList<>();
+        for (int j = 0; j< mempool.size(); j++){
+            if(publicKey==mempool.get(j).publicKey){
+                tokens.addAll(mempool.get(j).input);
+            }
+        }
+        return tokens;
+    }
 }
 
 class MerkleTree {
-    public static String getMerkleRoot(List<Token> transactions) {
+    public static String getMerkleRoot(List<Transaction> transactions) {
         if (transactions.isEmpty()) return "";
         List<String> temp = new ArrayList<>();
-        for (Token t : transactions) {
+        for (Transaction t : transactions) {
             temp.add(t.transactionId);
         }
         while (temp.size() > 1) {
@@ -188,20 +162,59 @@ class MerkleTree {
 }
 
 public class SimpleBlockchain {
-    public static void main(String[] args) {
-        Blockchain blockchain = new Blockchain(2);
-        User userA = new User();
-        User userB = new User();
-        User userC = new User();
+//    public static void main(String[] args) {
+//        Blockchain blockchain = new Blockchain();
+//        User userA = new User();
+//        User userB = new User();
+//        User userC = new User();
+//
+//        Transaction tx1 = new Transaction("tx4", "B",  , userB.signTransaction("tx4"), userB.publicKey);
+//        blockchain.addTransaction(tx1);
+//        blockchain.mineNewBlock();
+//
+//        Transaction tx2 = new Transaction("tx5", "C", 5, userB.signTransaction("tx5"), userB.publicKey);
+//        blockchain.addTransaction(tx2);
+//        blockchain.mineNewBlock();
+//
+//        System.out.println("Blockchain valid: " + blockchain.isChainValid());
+//    }
+        public static void main(String[] args) {
+            Blockchain blockchain = new Blockchain();
+            User userA = new User();
+            User userB = new User();
+            User userC = new User();
 
-        Token tx1 = new Token("tx4", "B", 10, userB.signTransaction("tx4"), userB.publicKey);
-        blockchain.addTransaction(tx1);
-        blockchain.mineNewBlock();
+            List<Token> inputsA = new ArrayList<>(blockchain.getUTXO()); // Takes all available UTXOs
+            List<Token> outputsA = List.of(new Token(userA.publicKey.toString(), 10),
+                    new Token(userA.publicKey.toString(), 30),
+                    new Token(userA.publicKey.toString(), 20)); // Splitting into 10, 30, 20
 
-        Token tx2 = new Token("tx5", "C", 5, userB.signTransaction("tx5"), userB.publicKey);
-        blockchain.addTransaction(tx2);
-        blockchain.mineNewBlock();
+            Transaction txA = new Transaction("txA", "A", inputsA, outputsA,
+                    userA.signTransaction("txA"), userA.publicKey);
+            blockchain.addTransaction(txA);
+            blockchain.mineNewBlock();
 
-        System.out.println("Blockchain valid: " + blockchain.isChainValid());
+            List<Token> inputsB = blockchain.findTokens(userA.publicKey, 25);
+            List<Token> outputsB = List.of(new Token(userB.publicKey.toString(), 25),
+                    new Token(userA.publicKey.toString(), 5)); // A keeps change
+
+            Transaction txB = new Transaction("txB", "B", inputsB, outputsB,
+                    userA.signTransaction("txB"), userA.publicKey);
+            blockchain.addTransaction(txB);
+            blockchain.mineNewBlock();
+
+            List<Token> inputsC = blockchain.findTokens(userB.publicKey, 20);
+            List<Token> outputsC = List.of(new Token(userC.publicKey.toString(), 15),
+                    new Token(userA.publicKey.toString(), 5)); // Miner fee
+
+            Transaction txC = new Transaction("txC", "C", inputsC, outputsC,
+                    userB.signTransaction("txC"), userB.publicKey);
+            blockchain.addTransaction(txC);
+            blockchain.mineNewBlock();
+
+            // Validation
+            System.out.println("Blockchain valid: " + blockchain.isChainValid());
+        }
     }
-}
+
+
