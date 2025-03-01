@@ -105,7 +105,7 @@ class MerkleTree {
 class Transaction {
   constructor(inputs, outputs) {
     this.inputs = inputs;   // Array of { txId, outputIndex, fromAddress, signature, publicKey }
-    this.outputs = outputs; // Array of { toAddress, amount }
+    this.outputs = outputs; // Array of { toAddress, tokens }
     this.id = this.calculateId();
   }
 
@@ -159,9 +159,9 @@ class Blockchain {
   createGenesisBlock() {
     this.utxoSet = {};
 
-    const genesisTx1 = new Transaction([], [{ toAddress: 'genesis1', amount: 30 }]);
-    const genesisTx2 = new Transaction([], [{ toAddress: 'genesis2', amount: 40 }]);
-    const genesisTx3 = new Transaction([], [{ toAddress: 'genesis3', amount: 30 }]);
+    const genesisTx1 = new Transaction([], [{ toAddress: 'genesis1', tokens: 30 }]);
+    const genesisTx2 = new Transaction([], [{ toAddress: 'genesis2', tokens: 40 }]);
+    const genesisTx3 = new Transaction([], [{ toAddress: 'genesis3', tokens: 30 }]);
 
     this.updateUtxoSet(genesisTx1);
     this.updateUtxoSet(genesisTx2);
@@ -185,7 +185,7 @@ class Blockchain {
     // 1. Verify Signatures
     for (const input of transaction.inputs) {
       const utxo = this.utxoSet[`${input.txId}:${input.outputIndex}`];
-      const txData = JSON.stringify({ from: input.fromAddress, amount: utxo ? utxo.amount : 0 }); // Handle potential undefined utxo
+      const txData = JSON.stringify({ from: input.fromAddress, tokens: utxo ? utxo.tokens : 0 }); // Handle potential undefined utxo
       console.log("Verifying signature for input:", input); // DEBUG
       console.log("txData being verified:", txData); //DEBUG
       console.log("Signature:", input.signature); //DEBUG
@@ -201,7 +201,7 @@ class Blockchain {
 
 
     // 2. Check if inputs are in UTXO set (and unspent)
-    let totalInputValue = 0;
+    let totalInputTokens = 0;
     for (const input of transaction.inputs) {
       const utxoKey = `${input.txId}:${input.outputIndex}`;
       if (!this.utxoSet[utxoKey]) {
@@ -212,16 +212,16 @@ class Blockchain {
         console.error(`Invalid address for utxo`);
         return;
       }
-      totalInputValue += this.utxoSet[utxoKey].amount;
+      totalInputTokens += this.utxoSet[utxoKey].tokens;
     }
 
-    // 3. Check if input amount >= output amount
-    let totalOutputValue = 0;
+    // 3. Check if input tokens >= output tokens
+    let totalOutputTokens = 0;
     for (const output of transaction.outputs) {
-      totalOutputValue += output.amount;
+      totalOutputTokens += output.tokens;
     }
-    if (totalInputValue < totalOutputValue) {
-      console.error('Insufficient input value');
+    if (totalInputTokens < totalOutputTokens) {
+      console.error('Insufficient input tokens');
       return;
     }
 
@@ -261,7 +261,7 @@ class Blockchain {
       const utxoKey = `${transaction.id}:${i}`;
       this.utxoSet[utxoKey] = {
         toAddress: transaction.outputs[i].toAddress,
-        amount: transaction.outputs[i].amount,
+        tokens: transaction.outputs[i].tokens,
       };
     }
   }
@@ -329,61 +329,61 @@ function main() {
   // genesis2: 40  (txId: genesisTx2.id, outputIndex: 0)
   // genesis3: 30  (txId: genesisTx3.id, outputIndex: 0)
 
-  // --- Transaction 1:  genesis1 (30) -> Alice (20), genesis1 (10) ---
+  // --- Transaction 1:  genesis1 (30) -> Alice (20 tokens), genesis1 (10 tokens) ---
   const genesisTx1 = blockchain.chain[0].transactions[0];
-  const tx1Data = JSON.stringify({ from: 'genesis1', amount: 30 });
-  const tx1Signature = genesisUser.signTransaction(tx1Data);
+  const tx1TokensData = JSON.stringify({ from: 'genesis1', tokens: 30 });
+  const tx1Signature = genesisUser.signTransaction(tx1TokensData);
 
   const tx1 = new Transaction(
     [{ txId: genesisTx1.id, outputIndex: 0, fromAddress: 'genesis1', signature: tx1Signature, publicKey: genesisUser.publicKey }],
-    [{ toAddress: alice.address, amount: 20 }, { toAddress: 'genesis1', amount: 10 }]
+    [{ toAddress: alice.address, tokens: 20 }, { toAddress: 'genesis1', tokens: 10 }]
   );
   blockchain.addTransactionToMempool(tx1, genesisUser);
 
-  // --- Transaction 2:  genesis2 (40) -> Bob (30), genesis2 (10) ---
+  // --- Transaction 2:  genesis2 (40 tokens) -> Bob (30 tokens), genesis2 (10 tokens) ---
   const genesisTx2 = blockchain.chain[0].transactions[1];
-  const tx2Data = JSON.stringify({ from: 'genesis2', amount: 40 });
-  const tx2Signature = genesisUser.signTransaction(tx2Data);
+  const tx2TokensData = JSON.stringify({ from: 'genesis2', tokens: 40 });
+  const tx2Signature = genesisUser.signTransaction(tx2TokensData);
 
   const tx2 = new Transaction(
     [{ txId: genesisTx2.id, outputIndex: 0, fromAddress: 'genesis2', signature: tx2Signature, publicKey: genesisUser.publicKey }],
-    [{ toAddress: bob.address, amount: 30 }, { toAddress: 'genesis2', amount: 10 }]
+    [{ toAddress: bob.address, tokens: 30 }, { toAddress: 'genesis2', tokens: 10 }]
   );
   blockchain.addTransactionToMempool(tx2, genesisUser);
 
   console.log('Mining block 1 (from mempool)...');
   blockchain.minePendingTransactions();
 
-  // --- Transaction 3:  Alice (20) -> Charlie (15), Alice (5) ---
-  const tx3Data = JSON.stringify({ from: alice.address, amount: 20 });
-  const tx3Signature = alice.signTransaction(tx3Data);
-  const aliceUtxoEntry = Object.entries(blockchain.utxoSet).find(([key, value]) => value.toAddress === alice.address && value.amount === 20);
+  // --- Transaction 3:  Alice (20 tokens) -> Charlie (15 tokens), Alice (5 tokens) ---
+  const tx3TokensData = JSON.stringify({ from: alice.address, tokens: 20 });
+  const tx3Signature = alice.signTransaction(tx3TokensData);
+  const aliceUtxoEntry = Object.entries(blockchain.utxoSet).find(([key, value]) => value.toAddress === alice.address && value.tokens === 20);
 
   if (!aliceUtxoEntry) {
-    console.error("No suitable UTXO found for Alice to spend 20.");
+    console.error("No suitable UTXO found for Alice to spend 20 tokens.");
     return; // Stop execution if UTXO not found
   }
   const aliceUtxoKey = aliceUtxoEntry[0];
   const tx3 = new Transaction(
     [{ txId: aliceUtxoKey.split(":")[0], outputIndex: parseInt(aliceUtxoKey.split(":")[1]), fromAddress: alice.address, signature: tx3Signature, publicKey: alice.publicKey }],
-    [{ toAddress: charlie.address, amount: 15 }, { toAddress: alice.address, amount: 5 }]
+    [{ toAddress: charlie.address, tokens: 15 }, { toAddress: alice.address, tokens: 5 }]
   );
   blockchain.addTransactionToMempool(tx3, alice);
 
-  // --- Transaction 4: Bob (30) -> Alice (30) ---
-  const tx4Data = JSON.stringify({ from: bob.address, amount: 30 });
-  const tx4Signature = bob.signTransaction(tx4Data);
+  // --- Transaction 4: Bob (30 tokens) -> Alice (30 tokens) ---
+  const tx4TokensData = JSON.stringify({ from: bob.address, tokens: 30 });
+  const tx4Signature = bob.signTransaction(tx4TokensData);
 
-  const bobUtxoEntry = Object.entries(blockchain.utxoSet).find(([key, value]) => value.toAddress === bob.address && value.amount === 30);
+  const bobUtxoEntry = Object.entries(blockchain.utxoSet).find(([key, value]) => value.toAddress === bob.address && value.tokens === 30);
    if (!bobUtxoEntry) {
-    console.error("No suitable UTXO found for Bob to spend 30.");
+    console.error("No suitable UTXO found for Bob to spend 30 tokens.");
     return; // Stop execution if UTXO not found
   }
   const bobUtxoKey = bobUtxoEntry[0];
 
   const tx4 = new Transaction(
     [{ txId: bobUtxoKey.split(":")[0], outputIndex: parseInt(bobUtxoKey.split(":")[1]), fromAddress: bob.address, signature: tx4Signature, publicKey: bob.publicKey }],
-    [{ toAddress: alice.address, amount: 30 }]
+    [{ toAddress: alice.address, tokens: 30 }]
   );
   blockchain.addTransactionToMempool(tx4, bob);
 
@@ -404,7 +404,7 @@ function main() {
   console.log("\nMempool:");
   console.log(JSON.stringify(blockchain.mempool, null, 2));
 
-  console.log("\nUTXO Set:");
+  console.log("\nUTXO Set (Tokens):");
   console.log(JSON.stringify(blockchain.utxoSet, null, 2));
 }
 
