@@ -83,33 +83,33 @@ class MerkleTree {
         return this.root;
     }
 
-    verifyTransaction(transaction) {
-      const transactionHash = this.hashLeaf(transaction);
-      let currentLevel = this.transactions.map(tx => this.hashLeaf(tx));
+  verifyTransaction(transaction) {
+    const transactionHash = this.hashLeaf(transaction);
+    let currentLevel = this.transactions.map(tx => this.hashLeaf(tx));
 
-      while (currentLevel.length > 1) {
-        const nextLevel = [];
-        for (let i = 0; i < currentLevel.length; i += 2) {
-          const left = currentLevel[i];
-          const right = (i + 1 < currentLevel.length) ? currentLevel[i + 1] : left; // Handle odd number of nodes
-          const parentHash = this.hashNode(left, right);
-          nextLevel.push(parentHash);
-          if ((left === transactionHash || right === transactionHash) && nextLevel.includes(parentHash)) {
-                return true; //early return
-          }
+    while (currentLevel.length > 1) {
+      const nextLevel = [];
+      for (let i = 0; i < currentLevel.length; i += 2) {
+        const left = currentLevel[i];
+        const right = (i + 1 < currentLevel.length) ? currentLevel[i + 1] : left; // Handle odd number of nodes
+        const parentHash = this.hashNode(left, right);
+        nextLevel.push(parentHash);
+        if ((left === transactionHash || right === transactionHash) && nextLevel.includes(parentHash)) {
+              return true; //early return
         }
-        currentLevel = nextLevel;
       }
-      return currentLevel[0] === this.root; // Check if it reaches the root
+      currentLevel = nextLevel;
     }
+    return currentLevel[0] === this.root; // Check if it reaches the root
+  }
 }
 
 class Transaction {
-  constructor(inputs, outputs) {
-    this.inputs = inputs;   // Array of { fromAddress, amount, signature, publicKey }
-    this.outputs = outputs; // Array of { toAddress, amount }
-    this.id = this.calculateId();
-  }
+    constructor(inputs, outputs) {
+        this.inputs = inputs;   // Array of { fromAddress, amount, signature, publicKey }
+        this.outputs = outputs; // Array of { toAddress, amount }
+        this.id = this.calculateId();
+    }
 
     calculateId() {
         return crypto.createHash('sha256')
@@ -155,62 +155,70 @@ class Block {
     }
 }
 
+
 class Blockchain {
     constructor(difficulty = 4) {
         this.chain = [this.createGenesisBlock()];
         this.difficulty = difficulty;
-        this.pendingTransactions = [];
+        this.mempool = []; // Mempool to store unconfirmed transactions
     }
 
     createGenesisBlock() {
-        const genesisTx = new Transaction([], [{ toAddress: 'genesis', amount: 100 }]);
-        return new Block(0, new Date().toISOString(), [genesisTx], '0');
-    }
+      // Create multiple genesis transactions
+      const genesisTx1 = new Transaction([], [{ toAddress: 'genesis1', amount: 30 }]);
+      const genesisTx2 = new Transaction([], [{ toAddress: 'genesis2', amount: 40 }]);
+      const genesisTx3 = new Transaction([], [{ toAddress: 'genesis3', amount: 30 }]);
+      return new Block(0, new Date().toISOString(), [genesisTx1, genesisTx2, genesisTx3], '0');
+  }
 
     getLatestBlock() {
         return this.chain[this.chain.length - 1];
     }
 
-  addTransaction(transaction, sender) {
-    if (!transaction.inputs || !transaction.outputs) {
-      throw new Error('Transaction must include inputs and outputs');
-    }
 
-    if (!Array.isArray(transaction.inputs) || !Array.isArray(transaction.outputs)) {
-      throw new Error("Inputs and outputs must be arrays.");
-    }
+    addTransactionToMempool(transaction, sender) {
+        if (!transaction.inputs || !transaction.outputs) {
+            throw new Error('Transaction must include inputs and outputs');
+        }
+        if (!Array.isArray(transaction.inputs) || !Array.isArray(transaction.outputs)) {
+          throw new Error("Inputs and outputs must be arrays.");
+        }
 
-    // Verify signatures for all inputs
-    for (const input of transaction.inputs) {
-      const txData = JSON.stringify({ from: input.fromAddress, amount: input.amount });
-      if (!sender.verifySignature(txData, input.signature, input.publicKey)) { // Verify signature
-        console.error('Invalid signature!');
-        return; // Or throw an error, depending on your needs
-      }
-    }
 
-    this.pendingTransactions.push(transaction);
-    return this.getLatestBlock().index + 1;
+        // Verify signatures for all inputs
+        for (const input of transaction.inputs) {
+          const txData = JSON.stringify({ from: input.fromAddress, amount: input.amount });
+          if (!sender.verifySignature(txData, input.signature, input.publicKey)) { // Verify signature
+            console.error('Invalid signature!');
+            return; // Or throw an error
+          }
+        }
+      
+        this.mempool.push(transaction);
+        return this.mempool.length;
+    }
+  
+  minePendingTransactions() {
+    // Select transactions from the mempool (simple FIFO in this example)
+    const transactionsToMine = this.mempool.splice(0, 10); // Limit to 10 txs per block
+
+    const block = new Block(
+      this.getLatestBlock().index + 1,
+      new Date().toISOString(),
+      transactionsToMine,
+      this.getLatestBlock().hash
+    );
+
+    block.mineBlock(this.difficulty);
+    console.log('Block successfully mined!');
+    this.chain.push(block);
+
+    // No need to clear pendingTransactions; it's managed by splicing from mempool
+
+    return block;
   }
 
 
-    minePendingTransactions() {
-        const block = new Block(
-            this.getLatestBlock().index + 1,
-            new Date().toISOString(),
-            this.pendingTransactions,
-            this.getLatestBlock().hash
-        );
-
-        block.mineBlock(this.difficulty);
-
-        console.log('Block successfully mined!');
-        this.chain.push(block);
-
-        this.pendingTransactions = [];
-
-        return block;
-    }
 
     isChainValid() {
         for (let i = 1; i < this.chain.length; i++) {
@@ -232,13 +240,12 @@ class Blockchain {
                 console.error(`Invalid Merkle root at block ${i}`);
                 return false;
             }
-
-          for (const tx of currentBlock.transactions) {
-              if (!tx.inputs || !tx.outputs || !tx.id) {
-                  console.error(`Invalid transaction format in block ${i}`);
-                  return false;
-              }
-          }
+            for (const tx of currentBlock.transactions) {
+                if (!tx.inputs || !tx.outputs || !tx.id) {
+                    console.error(`Invalid transaction format in block ${i}`);
+                    return false;
+                }
+            }
         }
 
         return true;
@@ -250,7 +257,7 @@ function main() {
     console.log('Creating a new blockchain...');
     const blockchain = new Blockchain();
 
-      // Parse command line arguments for difficulty
+        // Parse command line arguments for difficulty
   const args = process.argv.slice(2);
   if (args.length > 0) {
     const difficultyArg = args.find(arg => arg.startsWith('--difficulty='));
@@ -268,7 +275,7 @@ function main() {
     const bob = new User('Bob');
     const charlie = new User("Charlie");
 
-    console.log('\nAdding transactions...');
+    console.log('\nAdding transactions to mempool...');
 
     // Create a transaction from Alice to Bob
     const tx1Data = JSON.stringify({ from: alice.address, amount: 50 });
@@ -278,23 +285,25 @@ function main() {
         [{ fromAddress: alice.address, amount: 50, signature: tx1Signature, publicKey: alice.publicKey }], //inputs
         [{ toAddress: bob.address, amount: 50 }] //outputs
     );
-    blockchain.addTransaction(tx1, alice);  // Pass the sender (alice)
+    blockchain.addTransactionToMempool(tx1, alice);  // Add to mempool
+
 
      // Create a transaction from Bob to Charlie
     const tx2Data = JSON.stringify({ from: bob.address, amount: 25 });
     const tx2Signature = bob.signTransaction(tx2Data);
-
     const tx2 = new Transaction(
         [{ fromAddress: bob.address, amount: 25, signature: tx2Signature, publicKey: bob.publicKey }], //inputs
         [{ toAddress: charlie.address, amount: 25 }] //outputs
     );
-    blockchain.addTransaction(tx2, bob);
 
-    console.log('Mining block 1...');
+    blockchain.addTransactionToMempool(tx2, bob);
+
+
+    console.log('Mining block 1 (from mempool)...');
     blockchain.minePendingTransactions();
 
 
-     // Create a transaction from Charlie to Alice
+    // Create a transaction from Charlie to Alice
     const tx3Data = JSON.stringify({ from: charlie.address, amount: 10 });
     const tx3Signature = charlie.signTransaction(tx3Data);
 
@@ -302,20 +311,24 @@ function main() {
         [{ fromAddress: charlie.address, amount: 10, signature: tx3Signature, publicKey: charlie.publicKey }],
         [{ toAddress: alice.address, amount: 10 }]
     );
-    blockchain.addTransaction(tx3, charlie);  // Pass the sender (alice)
+    blockchain.addTransactionToMempool(tx3, charlie);  // Add to mempool
 
-    console.log('Mining block 2...');
+    console.log('Mining block 2 (from mempool)...');
     blockchain.minePendingTransactions();
 
     console.log('\nBlockchain validation:', blockchain.isChainValid() ? 'Valid' : 'Invalid');
-    console.log(`Verifying tx1 in blockchain: ${blockchain.chain[1].merkleTree.verifyTransaction(tx1)}`);
+     console.log(`Verifying tx1 in blockchain: ${blockchain.chain[1].merkleTree.verifyTransaction(tx1)}`);
     console.log('\nFull blockchain:');
     console.log(JSON.stringify(blockchain, null, 2));
 
-  console.log("\nUsers:");
-  console.log("Alice:", { address: alice.address, publicKey: alice.publicKey });
-  console.log("Bob:", { address: bob.address, publicKey: bob.publicKey });
-  console.log("Charlie:", { address: charlie.address, publicKey: charlie.publicKey});
+    console.log("\nUsers:");
+    console.log("Alice:", { address: alice.address, publicKey: alice.publicKey });
+    console.log("Bob:", { address: bob.address, publicKey: bob.publicKey });
+     console.log("Charlie:", { address: charlie.address, publicKey: charlie.publicKey});
+
+
+    console.log("\nMempool:");
+    console.log(JSON.stringify(blockchain.mempool, null, 2));
 }
 
 main();
