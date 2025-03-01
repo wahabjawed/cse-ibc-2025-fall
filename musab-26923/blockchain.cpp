@@ -9,7 +9,6 @@
 
 using namespace std;
 
-// Helper function to calculate SHA-256 hash
 string sha256(const string str) {
     EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
     const EVP_MD* md = EVP_sha256();
@@ -28,7 +27,6 @@ string sha256(const string str) {
     return ss.str();
 }
 
-// Key pair generation and management
 class KeyPair{
 public:
     EVP_PKEY* privateKey = nullptr;
@@ -73,20 +71,17 @@ public:
     }
 };
 
-// Transaction output structure
 struct TXOutput {
     double amount;
     string recipient;
 };
 
-// Transaction input structure
 struct TXInput {
     string txId;
     int outputIndex;
     string signature;
 };
 
-// Transaction class
 class Transaction {
 public:
     string txId;
@@ -112,7 +107,6 @@ public:
     }
 };
 
-// Block class
 class Block {
 public:
     int index;
@@ -146,7 +140,6 @@ public:
     }
 };
 
-// Blockchain class
 class Blockchain {
 private:
     vector<Block> chain;
@@ -166,7 +159,6 @@ public:
         genesis.mineBlock(difficulty);
         chain.push_back(genesis);
         
-        // Add genesis UTXO
         UTXO.push_back({100.0, "Genesis"});
     }
 
@@ -179,7 +171,6 @@ public:
         newBlock.mineBlock(difficulty);
         chain.push_back(newBlock);
         
-        // Update UTXO
         for(auto& tx : newBlock.transactions) {
             for(auto& output : tx.outputs) {
                 UTXO.push_back(output);
@@ -222,16 +213,13 @@ public:
 int main() {
     Blockchain bc;
 
-    // Simulate adding blocks
     KeyPair minerKey, aliceKey, bobKey;
 
-    // Block 1: Miner reward
     vector<Transaction> txs1;
     txs1.emplace_back(vector<TXInput>{}, vector<TXOutput>{{50.0, "Miner"}});
     Block block1(1, txs1, bc.getLastBlock().hash);
     bc.addBlock(block1);
 
-    // Block 2: Transfer
     vector<Transaction> txs2;
     TXInput in1{"genesis_tx_id", 0, "sig"};
     TXOutput out1{30.0, "Alice"}, out2{20.0, "Miner"};
@@ -239,7 +227,6 @@ int main() {
     Block block2(2, txs2, bc.getLastBlock().hash);
     bc.addBlock(block2);
 
-    // Block 3: Another transfer
     vector<Transaction> txs3;
     TXInput in2{"tx2_id", 0, "sig"};
     TXOutput out3{15.0, "Bob"}, out4{15.0, "Alice"};
@@ -247,7 +234,6 @@ int main() {
     Block block3(3, txs3, bc.getLastBlock().hash);
     bc.addBlock(block3);
 
-    // Validate and print chain status
     cout << "Blockchain valid: " << (bc.isChainValid() ? "Yes" : "No") << endl;
     bc.printUTXO();
 
