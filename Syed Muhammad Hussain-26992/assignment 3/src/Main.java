@@ -1,35 +1,60 @@
 //TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
 // click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
 public class Main {
+    static Blockchain blockchain;
+
     public static void main(String[] args) {
-        System.out.println("Hello and welcome!");
-        Blockchain blockchain = new Blockchain();
-        User u1 = new User("Ali");
+        User u1 = new User("Hussain");
+        initializeBlockchain(u1);
+
         User u2 = new User("Ahmed");
         User u3 = new User("Hassan");
 
-        simulateTransaction(u1, u2, 10, blockchain);
-        simulateTransaction(u2, u3, 5, blockchain);
-        simulateTransaction(u1, u3, 20, blockchain);
+        doTransaction(u1, u2, 20);
+        mineBlock();
+
+        doTransaction(u1, u3, 10);
+        doTransaction(u2, u3, 10);
+        mineBlock();
 
         blockchain.printList();
-        System.out.println("Blockchain valid: " + blockchain.isChainValid());
+    }
+    
+    public static void initializeBlockchain(User owner){
+        blockchain = new Blockchain(owner.getPublicKey());
     }
 
-    public static void simulateTransaction(User sender, User receiver, int amount, Blockchain blockchain) {
-        String transactionData = sender.getName() + " sends " + amount + " coins to " + receiver.getName();
-        String signature = sender.signTransaction(transactionData);
+    public static void doTransaction(User sender, User receiver, int amount){
+        System.out.println("""
+                ***************
+                TRANSACTION:
+                ------------""");
 
-        Transaction transaction = new Transaction(sender.getName(), receiver.getName(), amount, signature);
+        System.out.print("Before tx, ");
+        blockchain.printUTXOList();
+        System.out.println();
 
-        // VERIFY the transaction before adding it to the block
-        if (!sender.verifyTransaction(transactionData, signature, sender.getPublicKey())) {
-            System.out.println("Transaction failed: Invalid signature!");
-            return;
-        }
+        blockchain.processTransaction(sender, receiver, amount);
 
-        System.out.println("Transaction verified and added to blockchain!");
-        Block newBlock = new Block(blockchain.getChain().size(), transaction, blockchain.getLatestBlock().getHash());
-        blockchain.addBlock(newBlock);
+        System.out.print("After tx, ");
+        blockchain.printUTXOList();
+
+        System.out.println("***************");
+        System.out.println();
+    }
+
+    public static void mineBlock(){
+        System.out.println("""
+                ***************
+                MINING BLOCK:
+                ------------""");
+
+        blockchain.minePendingTransactions();
+
+        System.out.print("After mining, ");
+        blockchain.printUTXOList();
+
+        System.out.println("***************");
+        System.out.println();
     }
 }

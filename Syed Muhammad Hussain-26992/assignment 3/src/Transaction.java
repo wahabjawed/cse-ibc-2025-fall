@@ -1,34 +1,31 @@
+import java.util.ArrayList;
+import java.util.List;
+
 public class Transaction {
-    private String sender;
-    private String receiver;
-    private int amount;
-    private String signature;
+    List<Token> inputs;
+    List<Token> outputs;
+    String signature;
 
-    public Transaction(String sender, String receiver, int amount, String signature) {
-        this.sender = sender;
-        this.receiver = receiver;
-        this.amount = amount;
+    public Transaction(List<Token> inputs, List<Token> outputs, String signature) {
+        this.inputs = inputs;
+        this.outputs = outputs;
         this.signature = signature;
-    }
-
-    public String getSender() {
-        return sender;
-    }
-
-    public String getReceiver() {
-        return receiver;
-    }
-
-    public int getAmount() {
-        return amount;
-    }
-
-    public String getSignature() {
-        return signature;
     }
 
     @Override
     public String toString() {
-        return sender + " sends " + amount + " coins to " + receiver + " | Signature: " + signature;
+        StringBuilder sb = new StringBuilder();
+        sb.append("Transaction{\n");
+        sb.append("  Inputs:\n");
+        for (Token input : inputs) {
+            sb.append("    - ").append(input).append("\n");
+        }
+        sb.append("  Outputs:\n");
+        for (Token output : outputs) {
+            sb.append("    - ").append(output).append("\n");
+        }
+        sb.append("  Signature: ").append(signature).append("\n");
+        sb.append("}");
+        return sb.toString();
     }
 }

@@ -1,16 +1,18 @@
 import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
 public class Block {
     private int index;
     private long timestamp;
-    private Transaction transactions;
+    private List<Transaction> transactions;
     private String previousHash;
     private String hash;
     private int nonce;
 
-    public Block(int index, Transaction transactions, String previousHash) {
+    public Block(int index, List<Transaction> transactions, String previousHash) {
         this.index = index;
         this.timestamp = new Date().getTime();
         this.transactions = transactions;
@@ -27,7 +29,7 @@ public class Block {
         return sdf.format(new Date(timestamp));
     }
 
-    public Transaction getTransactions() {
+    public List<Transaction> getTransactions() {
         return transactions;
     }
 
@@ -78,7 +80,7 @@ public class Block {
                 "Timestamp: " + getTime() + "\n" +
                 "Previous Hash: " + previousHash + "\n" +
                 "Hash: " + hash + "\n" +
-                "Transaction: " + transactions.toString() + "\n" +
+                "Transactions: " + transactions.toString() + "\n" +
                 "--------------------------------------------------";
     }
 
