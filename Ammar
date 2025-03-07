@@ -1,0 +1,374 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <sstream>
+#include <iomanip>
+#include <chrono>
+#include <unordered_map>
+#include <openssl/sha.h>
+#include <openssl/ec.h>
+#include <openssl/ecdsa.h>
+#include <openssl/obj_mac.h>
+#include <openssl/bn.h>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
+
+// Helper functions for hex conversions
+std::vector<unsigned char> hex_to_bytes(const std::string& hex) {
+    std::vector<unsigned char> bytes;
+    for (size_t i = 0; i < hex.length(); i += 2) {
+        std::string byte_str = hex.substr(i, 2);
+        unsigned char byte = static_cast<unsigned char>(strtol(byte_str.c_str(), nullptr, 16));
+        bytes.push_back(byte);
+    }
+    return bytes;
+}
+
+std::string bytes_to_hex(const std::vector<unsigned char>& bytes) {
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+    for (unsigned char byte : bytes) {
+        ss << std::setw(2) << static_cast<int>(byte);
+    }
+    return ss.str();
+}
+
+class Transaction {
+public:
+    std::string sender;
+    std::string recipient;
+    int amount;
+    std::string signature;
+
+    Transaction(const std::string& sender, const std::string& recipient, int amount, const std::string& signature = "")
+        : sender(sender), recipient(recipient), amount(amount), signature(signature) {}
+
+    std::string calculate_hash() const {
+        json j;
+        j["sender"] = sender;
+        j["recipient"] = recipient;
+        j["amount"] = amount;
+        std::string tx_str = j.dump();
+
+        unsigned char hash[SHA256_DIGEST_LENGTH];
+        SHA256_CTX sha256;
+        SHA256_Init(&sha256);
+        SHA256_Update(&sha256, tx_str.c_str(), tx_str.size());
+        SHA256_Final(hash, &sha256);
+
+        std::stringstream ss;
+        for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
+            ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+        }
+        return ss.str();
+    }
+
+    void sign_transaction(const std::string& private_key_hex) {
+        EC_KEY* ec_key = EC_KEY_new_by_curve_name(NID_secp256k1);
+        std::vector<unsigned char> priv_key_bytes = hex_to_bytes(private_key_hex);
+        BIGNUM* priv_key = BN_bin2bn(priv_key_bytes.data(), priv_key_bytes.size(), nullptr);
+        EC_KEY_set_private_key(ec_key, priv_key);
+
+        std::string tx_hash = calculate_hash();
+        ECDSA_SIG* sig = ECDSA_do_sign(reinterpret_cast<const unsigned char*>(tx_hash.data()), tx_hash.size(), ec_key);
+        
+        const BIGNUM *r, *s;
+        ECDSA_SIG_get0(sig, &r, &s);
+
+        std::vector<unsigned char> r_bytes(32), s_bytes(32);
+        BN_bn2binpad(r, r_bytes.data(), 32);
+        BN_bn2binpad(s, s_bytes.data(), 32);
+
+        r_bytes.insert(r_bytes.end(), s_bytes.begin(), s_bytes.end());
+        signature = bytes_to_hex(r_bytes);
+
+        EC_KEY_free(ec_key);
+        BN_free(priv_key);
+        ECDSA_SIG_free(sig);
+    }
+
+    bool is_valid() const;
+};
+
+class UTXOSet {
+public:
+    std::unordered_map<std::string, int> utxos;
+
+    int get_balance(const std::string& address) const {
+        auto it = utxos.find(address);
+        return (it != utxos.end()) ? it->second : 0;
+    }
+
+    bool has_enough_balance(const std::string& address, int amount) const {
+        return get_balance(address) >= amount;
+    }
+
+    void handle_transaction(const Transaction& tx) {
+        if (!tx.sender.empty()) {
+            utxos[tx.sender] = get_balance(tx.sender) - tx.amount;
+        }
+        utxos[tx.recipient] = get_balance(tx.recipient) + tx.amount;
+    }
+
+    void set_balance(const std::string& address, int balance) {
+        utxos[address] = balance;
+    }
+};
+
+UTXOSet UTXO_SET;
+
+bool Transaction::is_valid() const {
+    if (sender.empty()) return true;
+    if (signature.empty()) {
+        std::cout << "Transaction has no signature." << std::endl;
+        return false;
+    }
+
+    EC_KEY* ec_key = EC_KEY_new_by_curve_name(NID_secp256k1);
+    std::vector<unsigned char> pub_key_bytes = hex_to_bytes(sender);
+    EC_GROUP* group = EC_GROUP_new_by_curve_name(NID_secp256k1);
+    EC_POINT* pub_key = EC_POINT_new(group);
+    EC_POINT_oct2point(group, pub_key, pub_key_bytes.data(), pub_key_bytes.size(), nullptr);
+    EC_KEY_set_public_key(ec_key, pub_key);
+
+    std::vector<unsigned char> sig_bytes = hex_to_bytes(signature);
+    if (sig_bytes.size() != 64) {
+        EC_KEY_free(ec_key);
+        EC_POINT_free(pub_key);
+        EC_GROUP_free(group);
+        return false;
+    }
+
+    BIGNUM* r = BN_bin2bn(sig_bytes.data(), 32, nullptr);
+    BIGNUM* s = BN_bin2bn(sig_bytes.data() + 32, 32, nullptr);
+    ECDSA_SIG* sig = ECDSA_SIG_new();
+    ECDSA_SIG_set0(sig, r, s);
+
+    std::string tx_hash = calculate_hash();
+    int valid = ECDSA_do_verify(reinterpret_cast<const unsigned char*>(tx_hash.data()), tx_hash.size(), sig, ec_key);
+
+    EC_KEY_free(ec_key);
+    EC_POINT_free(pub_key);
+    EC_GROUP_free(group);
+    ECDSA_SIG_free(sig);
+
+    if (valid != 1) {
+        std::cout << "Invalid signature." << std::endl;
+        return false;
+    }
+
+    if (!UTXO_SET.has_enough_balance(sender, amount)) {
+        std::cout << "Insufficient on-chain funds." << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+class Block {
+public:
+    int index;
+    std::time_t timestamp;
+    std::vector<Transaction> transactions;
+    std::string previous_hash;
+    int nonce;
+    std::string hash;
+
+    Block(int idx, const std::vector<Transaction>& txs, const std::string& prev_hash)
+        : index(idx), transactions(txs), previous_hash(prev_hash), nonce(0) {
+            timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+            hash = calculate_hash();
+        }
+
+    std::string calculate_hash() const {
+        json j;
+        j["index"] = index;
+        j["timestamp"] = timestamp;
+        j["transactions"] = json::array();
+        for (const auto& tx : transactions) {
+            json tx_json;
+            tx_json["sender"] = tx.sender;
+            tx_json["recipient"] = tx.recipient;
+            tx_json["amount"] = tx.amount;
+            j["transactions"].push_back(tx_json);
+        }
+        j["previous_hash"] = previous_hash;
+        j["nonce"] = nonce;
+
+        std::string block_str = j.dump();
+
+        unsigned char hash[SHA256_DIGEST_LENGTH];
+        SHA256_CTX sha256;
+        SHA256_Init(&sha256);
+        SHA256_Update(&sha256, block_str.c_str(), block_str.size());
+        SHA256_Final(hash, &sha256);
+
+        std::stringstream ss;
+        for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
+            ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+        }
+        return ss.str();
+    }
+
+    void mine_block(int difficulty) {
+        std::string target(difficulty, '0');
+        while (hash.substr(0, difficulty) != target) {
+            nonce++;
+            hash = calculate_hash();
+        }
+        std::cout << "Block mined: " << hash << std::endl;
+    }
+};
+
+class Blockchain {
+    std::vector<Block> chain;
+    int difficulty;
+    std::vector<Transaction> mempool;
+
+    Block create_genesis_block() {
+        Transaction genesis_tx("", "GENESIS_ADDRESS", 50);
+        std::vector<Transaction> txs = {genesis_tx};
+        Block genesis(0, txs, "0");
+        return genesis;
+    }
+
+public:
+    Blockchain(int diff = 2) : difficulty(diff) {
+        chain.push_back(create_genesis_block());
+    }
+
+    Block get_latest_block() const {
+        return chain.back();
+    }
+
+    void add_transaction_to_mempool(const Transaction& tx) {
+        if (!tx.sender.empty()) {
+            int mempool_spending = 0;
+            for (const auto& mtx : mempool) {
+                if (mtx.sender == tx.sender) {
+                    mempool_spending += mtx.amount;
+                }
+            }
+            int current_balance = UTXO_SET.get_balance(tx.sender);
+            if (tx.amount + mempool_spending > current_balance) {
+                std::cout << "Rejecting transaction from " << tx.sender.substr(0, 10) << "...: Insufficient future balance." << std::endl;
+                return;
+            }
+        }
+
+        if (tx.is_valid()) {
+            mempool.push_back(tx);
+            std::cout << "Transaction added to mempool." << std::endl;
+        } else {
+            std::cout << "Transaction is invalid and was not added." << std::endl;
+        }
+    }
+
+    void mine_pending_transactions(const std::string& miner_address) {
+        Transaction reward_tx("", miner_address, 10);
+        mempool.insert(mempool.begin(), reward_tx);
+
+        Block new_block(chain.size(), mempool, get_latest_block().hash);
+        new_block.mine_block(difficulty);
+
+        chain.push_back(new_block);
+
+        for (const auto& tx : mempool) {
+            UTXO_SET.handle_transaction(tx);
+        }
+
+        mempool.clear();
+    }
+
+    bool is_chain_valid() const {
+        for (size_t i = 1; i < chain.size(); ++i) {
+            const Block& current = chain[i];
+            const Block& prev = chain[i-1];
+            if (current.hash != current.calculate_hash()) {
+                std::cout << "Current block hash mismatch!" << std::endl;
+                return false;
+            }
+            if (current.previous_hash != prev.hash) {
+                std::cout << "Previous block hash mismatch!" << std::endl;
+                return false;
+            }
+            for (const auto& tx : current.transactions) {
+                if (!tx.is_valid()) {
+                    std::cout << "Invalid transaction in block." << std::endl;
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+
+class User {
+    std::string private_key;
+    std::string public_key;
+
+public:
+    User() {
+        EC_KEY* ec_key = EC_KEY_new_by_curve_name(NID_secp256k1);
+        EC_KEY_generate_key(ec_key);
+
+        const BIGNUM* priv_bn = EC_KEY_get0_private_key(ec_key);
+        std::vector<unsigned char> priv_bytes(BN_num_bytes(priv_bn));
+        BN_bn2bin(priv_bn, priv_bytes.data());
+        private_key = bytes_to_hex(priv_bytes);
+
+        EC_POINT* pub_point = EC_POINT_new(EC_KEY_get0_group(ec_key));
+        EC_POINT_copy(pub_point, EC_KEY_get0_public_key(ec_key));
+        std::vector<unsigned char> pub_bytes;
+        size_t pub_len = EC_POINT_point2oct(EC_KEY_get0_group(ec_key), pub_point, POINT_CONVERSION_UNCOMPRESSED, nullptr, 0, nullptr);
+        pub_bytes.resize(pub_len);
+        EC_POINT_point2oct(EC_KEY_get0_group(ec_key), pub_point, POINT_CONVERSION_UNCOMPRESSED, pub_bytes.data(), pub_len, nullptr);
+        public_key = bytes_to_hex(pub_bytes);
+
+        EC_KEY_free(ec_key);
+        EC_POINT_free(pub_point);
+    }
+
+    Transaction create_transaction(const std::string& recipient, int amount) {
+        Transaction tx(public_key, recipient, amount);
+        tx.sign_transaction(private_key);
+        return tx;
+    }
+
+    std::string get_public_key() const { return public_key; }
+};
+
+void demo() {
+    Blockchain my_chain(2);
+
+    User alice;
+    User bob;
+
+    UTXO_SET.set_balance(alice.get_public_key(), 100);
+    std::cout << "Alice's on-chain balance = " << UTXO_SET.get_balance(alice.get_public_key()) << "\n\n";
+
+    Transaction tx1 = alice.create_transaction(bob.get_public_key(), 30);
+    my_chain.add_transaction_to_mempool(tx1);
+
+    Transaction tx2 = alice.create_transaction(bob.get_public_key(), 80);
+    my_chain.add_transaction_to_mempool(tx2);
+
+    std::cout << "\nMining pending transactions...\n";
+    std::string miner_address = "Miner1234";
+    my_chain.mine_pending_transactions(miner_address);
+
+    std::cout << "\n-- Balances After Mining --\n";
+    std::cout << "Alice's Balance: " << UTXO_SET.get_balance(alice.get_public_key()) << std::endl;
+    std::cout << "Bob's Balance: " << UTXO_SET.get_balance(bob.get_public_key()) << std::endl;
+    std::cout << "Miner's Balance: " << UTXO_SET.get_balance(miner_address) << std::endl;
+
+    std::cout << "\nIs chain valid? " << (my_chain.is_chain_valid() ? "Yes" : "No") << std::endl;
+}
+
+int main() {
+    OpenSSL_add_all_algorithms();
+    demo();
+    EVP_cleanup();
+    return 0;
+}
